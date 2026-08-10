@@ -46,7 +46,7 @@ export const scrapeJobs = task({
     logger.log("Scraping WeWorkRemotely", { jobTitle: payload.jobTitle });
 
     const { stdout } = await execFileAsync(
-      "PYTHON_BIN",
+      PYTHON_BIN,
       ["-m", "scraper.weworkremotely", payload.jobTitle],
       { cwd: process.cwd(), maxBuffer: 10 * 1024 * 1024 }
     );
