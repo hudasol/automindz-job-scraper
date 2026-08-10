@@ -3,7 +3,7 @@ import { aptGet } from "@trigger.dev/build/extensions/core";
 
 export default defineConfig({
   // Fill in from your Trigger.dev dashboard: Project settings -> Project ref.
-  project: "<YOUR_TRIGGER_PROJECT_REF>",
+  project: "proj_rkttmpuzxlbytvohzydp",
   dirs: ["./src"],
   maxDuration: 60,
   build: {

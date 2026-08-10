@@ -26,6 +26,7 @@ import { promisify } from "node:util";
 import { createClient } from "@supabase/supabase-js";
 
 const execFileAsync = promisify(execFile);
+const PYTHON_BIN = process.platform === "win32" ? "python" : "python3";
 
 interface ScrapedJob {
   job_url: string;
@@ -45,7 +46,7 @@ export const scrapeJobs = task({
     logger.log("Scraping WeWorkRemotely", { jobTitle: payload.jobTitle });
 
     const { stdout } = await execFileAsync(
-      "python3",
+      "PYTHON_BIN",
       ["-m", "scraper.weworkremotely", payload.jobTitle],
       { cwd: process.cwd(), maxBuffer: 10 * 1024 * 1024 }
     );
