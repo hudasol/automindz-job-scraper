@@ -24,9 +24,11 @@ import { task, logger } from "@trigger.dev/sdk";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { createClient } from "@supabase/supabase-js";
+import path from "node:path";
 
 const execFileAsync = promisify(execFile);
 const PYTHON_BIN = process.platform === "win32" ? "python" : "python3";
+const REPO_ROOT = path.resolve(process.cwd(), "..");
 
 interface ScrapedJob {
   job_url: string;
@@ -48,7 +50,7 @@ export const scrapeJobs = task({
     const { stdout } = await execFileAsync(
       PYTHON_BIN,
       ["-m", "scraper.weworkremotely", payload.jobTitle],
-      { cwd: process.cwd(), maxBuffer: 10 * 1024 * 1024 }
+      { cwd: REPO_ROOT, maxBuffer: 10 * 1024 * 1024 }
     );
 
     const jobs: ScrapedJob[] = JSON.parse(stdout);
