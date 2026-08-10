@@ -97,3 +97,11 @@ def get_jobs(job_title: str = Query(..., min_length=1, description="Job title to
         time.sleep(POLL_INTERVAL_SECONDS)
 
     raise HTTPException(504, "Timed out waiting for scrape task to complete")
+
+from fastapi.responses import FileResponse
+
+FRONTEND_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "web", "index.html")
+
+@app.get("/")
+def serve_frontend():
+    return FileResponse(FRONTEND_PATH)
