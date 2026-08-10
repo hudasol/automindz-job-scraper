@@ -31,6 +31,9 @@ import httpx
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 
+from dotenv import load_dotenv
+load_dotenv()
+
 TRIGGER_TASK_URL = "https://api.trigger.dev/api/v1/tasks/{task_id}/trigger"
 TRIGGER_RUN_URL = "https://api.trigger.dev/api/v3/runs/{run_id}"  # v3, not v1 - confirmed in docs
 

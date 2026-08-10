@@ -5,65 +5,168 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Job Search</title>
 <style>
-  body { font-family: system-ui, sans-serif; max-width: 640px; margin: 40px auto; padding: 0 16px; color: #1a1a1a; }
-  h1 { font-size: 1.4rem; }
-  form { display: flex; gap: 8px; margin-bottom: 24px; }
-  input { flex: 1; padding: 8px; font-size: 1rem; }
-  button { padding: 8px 16px; font-size: 1rem; cursor: pointer; }
-  .job { border-top: 1px solid #ddd; padding: 12px 0; }
+  :root {
+    --accent: #4f46e5;
+    --accent-dark: #4338ca;
+    --text: #1a1a1a;
+    --muted: #6b7280;
+    --border: #e5e7eb;
+    --bg: #f9fafb;
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, "Segoe UI", system-ui, sans-serif;
+    max-width: 680px;
+    margin: 0 auto;
+    padding: 56px 20px 80px;
+    color: var(--text);
+    background: var(--bg);
+  }
+  header { margin-bottom: 28px; }
+  h1 { font-size: 1.7rem; margin: 0 0 4px; letter-spacing: -0.02em; }
+  .subtitle { color: var(--muted); font-size: 0.95rem; margin: 0; }
+ 
+  form {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 24px;
+    background: #fff;
+    padding: 8px;
+    border-radius: 12px;
+    border: 1px solid var(--border);
+    box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+  }
+  input {
+    flex: 1;
+    padding: 10px 12px;
+    font-size: 1rem;
+    border: none;
+    outline: none;
+    background: transparent;
+  }
+  button {
+    padding: 10px 20px;
+    font-size: 0.95rem;
+    font-weight: 600;
+    cursor: pointer;
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    transition: background 0.15s ease;
+  }
+  button:hover { background: var(--accent-dark); }
+  button:disabled { background: #a5a6f0; cursor: default; }
+ 
+  #status {
+    color: var(--muted);
+    font-size: 0.9rem;
+    margin-bottom: 16px;
+    min-height: 1.2em;
+  }
+  #status.loading::after {
+    content: "";
+    display: inline-block;
+    width: 12px;
+    text-align: left;
+    animation: dots 1.2s steps(4, end) infinite;
+  }
+  @keyframes dots {
+    0% { content: ""; } 25% { content: "."; } 50% { content: ".."; } 75% { content: "..."; }
+  }
+ 
+  #results { display: flex; flex-direction: column; gap: 10px; }
+  .job {
+    background: #fff;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px 18px;
+    transition: box-shadow 0.15s ease, transform 0.15s ease;
+  }
+  .job:hover { box-shadow: 0 4px 12px rgba(0,0,0,0.06); transform: translateY(-1px); }
   .job h3 { margin: 0 0 4px; font-size: 1.05rem; }
-  .job a { color: #0645ad; word-break: break-all; }
-  .muted { color: #666; font-size: 0.9rem; }
-  #status { color: #666; margin-bottom: 12px; }
+  .job .company { color: var(--accent); font-weight: 600; font-size: 0.9rem; margin-bottom: 8px; }
+  .job p.desc { color: #374151; font-size: 0.9rem; line-height: 1.4; margin: 0 0 10px; }
+  .job a {
+    color: var(--accent);
+    text-decoration: none;
+    font-size: 0.85rem;
+    font-weight: 600;
+  }
+  .job a:hover { text-decoration: underline; }
+ 
+  .empty {
+    text-align: center;
+    color: var(--muted);
+    padding: 40px 0;
+    font-size: 0.95rem;
+  }
 </style>
 </head>
 <body>
-  <h1>Job Search</h1>
+  <header>
+    <h1>Job Search</h1>
+    <p class="subtitle">Live results scraped from We Work Remotely.</p>
+  </header>
   <form id="search-form">
-    <input id="job-title" type="text" placeholder="Python Developer" required />
-    <button type="submit">Search</button>
+    <input id="job-title" type="text" placeholder="Software Engineer" required />
+    <button type="submit" id="search-btn">Search</button>
   </form>
   <div id="status"></div>
   <div id="results"></div>
-
+ 
   <script>
     // Point this at your deployed FastAPI URL once it's on Vercel;
     // localhost:8000 is fine for local dev (`uvicorn api.main:app --reload`).
     const API_BASE = window.API_BASE || "http://localhost:8000";
-
+ 
     const form = document.getElementById("search-form");
     const status = document.getElementById("status");
     const results = document.getElementById("results");
-
+    const searchBtn = document.getElementById("search-btn");
+ 
     function escapeHtml(str) {
       const div = document.createElement("div");
       div.textContent = str || "";
       return div.innerHTML;
     }
-
+ 
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
       const jobTitle = document.getElementById("job-title").value.trim();
       if (!jobTitle) return;
-
+ 
       results.innerHTML = "";
-      status.textContent = "Searching...";
-
+      status.className = "loading";
+      status.textContent = "Searching";
+      searchBtn.disabled = true;
+ 
       try {
         const res = await fetch(`${API_BASE}/v1/get-jobs?job_title=${encodeURIComponent(jobTitle)}`);
         if (!res.ok) throw new Error(`Request failed: ${res.status}`);
         const data = await res.json();
-
+ 
+        status.className = "";
         status.textContent = `${data.jobs.length} job(s) found for "${data.job_title}"`;
-        results.innerHTML = data.jobs.map(job => `
-          <div class="job">
-            <h3>${escapeHtml(job.job_title)}</h3>
-            <div class="muted">${escapeHtml(job.company_name)}</div>
-            <a href="${job.job_url}" target="_blank" rel="noopener">${escapeHtml(job.job_url)}</a>
-          </div>
-        `).join("");
+ 
+
+        if (data.jobs.length === 0) {
+          results.innerHTML = `<div class="empty">No jobs found. Try a different search term.</div>`;
+        } else {
+          results.innerHTML = data.jobs.map(job => `
+            <div class="job">
+              <h3>${escapeHtml(job.job_title)}</h3>
+              <div class="company">Company Name: ${escapeHtml(job.company_name)}</div>
+              <p class="desc">${escapeHtml(job.job_description)}</p>
+              <a href="${job.job_url}" target="_blank" rel="noopener">${escapeHtml(job.job_url)}</a>
+            </div>
+          `).join("");
+        }
       } catch (err) {
+        status.className = "";
         status.textContent = `Error: ${err.message}`;
+      } finally {
+        searchBtn.disabled = false;
       }
     });
   </script>
