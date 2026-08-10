@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Job Search</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 640px; margin: 40px auto; padding: 0 16px; color: #1a1a1a; }
+  h1 { font-size: 1.4rem; }
+  form { display: flex; gap: 8px; margin-bottom: 24px; }
+  input { flex: 1; padding: 8px; font-size: 1rem; }
+  button { padding: 8px 16px; font-size: 1rem; cursor: pointer; }
+  .job { border-top: 1px solid #ddd; padding: 12px 0; }
+  .job h3 { margin: 0 0 4px; font-size: 1.05rem; }
+  .job a { color: #0645ad; word-break: break-all; }
+  .muted { color: #666; font-size: 0.9rem; }
+  #status { color: #666; margin-bottom: 12px; }
+</style>
+</head>
+<body>
+  <h1>Job Search</h1>
+  <form id="search-form">
+    <input id="job-title" type="text" placeholder="Python Developer" required />
+    <button type="submit">Search</button>
+  </form>
+  <div id="status"></div>
+  <div id="results"></div>
+
+  <script>
+    // Point this at your deployed FastAPI URL once it's on Vercel;
+    // localhost:8000 is fine for local dev (`uvicorn api.main:app --reload`).
+    const API_BASE = window.API_BASE || "http://localhost:8000";
+
+    const form = document.getElementById("search-form");
+    const status = document.getElementById("status");
+    const results = document.getElementById("results");
+
+    function escapeHtml(str) {
+      const div = document.createElement("div");
+      div.textContent = str || "";
+      return div.innerHTML;
+    }
+
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const jobTitle = document.getElementById("job-title").value.trim();
+      if (!jobTitle) return;
+
+      results.innerHTML = "";
+      status.textContent = "Searching...";
+
+      try {
+        const res = await fetch(`${API_BASE}/v1/get-jobs?job_title=${encodeURIComponent(jobTitle)}`);
+        if (!res.ok) throw new Error(`Request failed: ${res.status}`);
+        const data = await res.json();
+
+        status.textContent = `${data.jobs.length} job(s) found for "${data.job_title}"`;
+        results.innerHTML = data.jobs.map(job => `
+          <div class="job">
+            <h3>${escapeHtml(job.job_title)}</h3>
+            <div class="muted">${escapeHtml(job.company_name)}</div>
+            <a href="${job.job_url}" target="_blank" rel="noopener">${escapeHtml(job.job_url)}</a>
+          </div>
+        `).join("");
+      } catch (err) {
+        status.textContent = `Error: ${err.message}`;
+      }
+    });
+  </script>
+</body>
+</html>
