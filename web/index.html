@@ -25,7 +25,6 @@
   header { margin-bottom: 28px; }
   h1 { font-size: 1.7rem; margin: 0 0 4px; letter-spacing: -0.02em; }
   .subtitle { color: var(--muted); font-size: 0.95rem; margin: 0; }
- 
   form {
     display: flex;
     gap: 10px;
@@ -57,7 +56,6 @@
   }
   button:hover { background: var(--accent-dark); }
   button:disabled { background: #a5a6f0; cursor: default; }
- 
   #status {
     color: var(--muted);
     font-size: 0.9rem;
@@ -74,7 +72,6 @@
   @keyframes dots {
     0% { content: ""; } 25% { content: "."; } 50% { content: ".."; } 75% { content: "..."; }
   }
- 
   #results { display: flex; flex-direction: column; gap: 10px; }
   .job {
     background: #fff;
@@ -94,7 +91,6 @@
     font-weight: 600;
   }
   .job a:hover { text-decoration: underline; }
- 
   .empty {
     text-align: center;
     color: var(--muted);
@@ -114,42 +110,41 @@
   </form>
   <div id="status"></div>
   <div id="results"></div>
- 
   <script>
     // Point this at your deployed FastAPI URL once it's on Vercel;
     // localhost:8000 is fine for local dev (`uvicorn api.main:app --reload`).
     const API_BASE = window.API_BASE || "https://automindz-job-scraper.vercel.app";
- 
     const form = document.getElementById("search-form");
     const status = document.getElementById("status");
     const results = document.getElementById("results");
     const searchBtn = document.getElementById("search-btn");
- 
     function escapeHtml(str) {
       const div = document.createElement("div");
       div.textContent = str || "";
       return div.innerHTML;
     }
- 
+    function summarize(text, maxLength = 250) {
+      if (!text) return "";
+      const trimmed = text.trim();
+      if (trimmed.length <= maxLength) return trimmed;
+      const cut = trimmed.slice(0, maxLength);
+      const lastSpace = cut.lastIndexOf(" ");
+      return (lastSpace > 0 ? cut.slice(0, lastSpace) : cut) + "...";
+    }
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
       const jobTitle = document.getElementById("job-title").value.trim();
       if (!jobTitle) return;
- 
       results.innerHTML = "";
       status.className = "loading";
       status.textContent = "Searching";
       searchBtn.disabled = true;
- 
       try {
         const res = await fetch(`${API_BASE}/v1/get-jobs?job_title=${encodeURIComponent(jobTitle)}`);
         if (!res.ok) throw new Error(`Request failed: ${res.status}`);
         const data = await res.json();
- 
         status.className = "";
         status.textContent = `${data.jobs.length} job(s) found for "${data.job_title}"`;
- 
-
         if (data.jobs.length === 0) {
           results.innerHTML = `<div class="empty">No jobs found. Try a different search term.</div>`;
         } else {
@@ -157,7 +152,7 @@
             <div class="job">
               <h3>${escapeHtml(job.job_title)}</h3>
               <div class="company">Company Name: ${escapeHtml(job.company_name)}</div>
-              <p class="desc">${escapeHtml(job.job_description)}</p>
+              <p class="desc">${escapeHtml(summarize(job.job_description))}</p>
               <a href="${job.job_url}" target="_blank" rel="noopener">${escapeHtml(job.job_url)}</a>
             </div>
           `).join("");
