@@ -28,7 +28,7 @@ import path from "node:path";
 
 const execFileAsync = promisify(execFile);
 const PYTHON_BIN = process.platform === "win32" ? "python" : "python3";
-const REPO_ROOT = path.resolve(process.cwd(), "..");
+const REPO_ROOT = process.cwd();
 
 interface ScrapedJob {
   job_url: string;
@@ -47,11 +47,15 @@ export const scrapeJobs = task({
   run: async (payload: { jobTitle: string }) => {
     logger.log("Scraping WeWorkRemotely", { jobTitle: payload.jobTitle });
 
-    const { stdout } = await execFileAsync(
+    const { stdout, stderr } = await execFileAsync(
       PYTHON_BIN,
       ["-m", "scraper.weworkremotely", payload.jobTitle],
       { cwd: REPO_ROOT, maxBuffer: 10 * 1024 * 1024 }
     );
+
+    if (stderr) {
+      logger.warn("scraper stderr", { stderr });
+    }
 
     const jobs: ScrapedJob[] = JSON.parse(stdout);
     logger.log(`Scraped ${jobs.length} job(s)`);
