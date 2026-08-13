@@ -117,6 +117,15 @@ environment variables (Production environment) — neither `.env` file is deploy
   to the browser. `schema.sql` explicitly disables RLS and grants table-level access instead.
 - **FastAPI triggers-and-polls Trigger.dev rather than using a webhook callback**, since a webhook
   would need a publicly reachable endpoint during local dev.
+- **Some WWR titles carry an invisible leading emoji/variation-selector character.** `str.strip()`
+  only removes whitespace, not symbol/mark characters, so a decorative glyph WWR sometimes
+  prepends to a title can survive scraping and silently break alphabetical sorting (it sorts
+  before any real letter, even though it renders as a near-invisible gap). Defended in two
+  places: `scraper/weworkremotely.py`'s `_clean_title()` strips leading Unicode
+  symbol/mark/format characters before the title/company ever leave the scraper, and
+  `web/index.html`'s `sortKey()` strips any leading non-letter/non-digit character again before
+  comparing, in case dirty data reaches the frontend some other way (e.g. old rows already in
+  Supabase).
 
 ## Working across Vercel / Trigger.dev / Supabase from here
 

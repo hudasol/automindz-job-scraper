@@ -2,7 +2,11 @@
  * Trigger.dev task: scrape-jobs
  *
  * Payload: { jobTitle: string }
- * Output:  { jobs: Array<{ job_url, job_description, company_name, job_title }> }
+ * Output:  { jobs: Array<{ job_url, job_description, company_name, job_title, date_posted,
+ *            job_type }> }
+ *
+ * job_type is dropped before the Supabase upsert (no column for it - it's a best-effort,
+ * display-only guess, see scraper/weworkremotely.py) but stays in the returned `jobs` array.
  *
  * Trigger.dev tasks run in Node/TypeScript. The actual scraping logic lives in Python
  * (scraper/weworkremotely.py at the repo root) - this task shells out to it, then
@@ -35,6 +39,8 @@ interface ScrapedJob {
   job_description: string;
   company_name: string;
   job_title: string;
+  date_posted: string | null;
+  job_type: string;
 }
 
 const supabase = createClient(
@@ -61,12 +67,16 @@ export const scrapeJobs = task({
     logger.log(`Scraped ${jobs.length} job(s)`);
 
     if (jobs.length > 0) {
+      // job_type has no column in Supabase (best-effort, display-only field - see
+      // scraper/weworkremotely.py's _infer_job_type) so it's dropped before the upsert to
+      // avoid an unknown-column error; it stays on the `jobs` array returned below.
+      const rows = jobs.map(({ job_type, ...rest }) => ({
+        ...rest,
+        search_query: payload.jobTitle,
+      }));
       const { error } = await supabase
         .from("jobs")
-        .upsert(
-          jobs.map((j) => ({ ...j, search_query: payload.jobTitle })),
-          { onConflict: "job_url", ignoreDuplicates: true }
-        );
+        .upsert(rows, { onConflict: "job_url", ignoreDuplicates: true });
 
       if (error) {
         logger.error("Supabase upsert failed", { error });

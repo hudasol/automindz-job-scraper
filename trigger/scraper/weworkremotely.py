@@ -10,7 +10,9 @@ appears in the job title or description.
 
 Usage (CLI - this is how the Trigger.dev task calls it):
     python3 -m scraper.weworkremotely "Python Developer"
-    -> prints a JSON array of {job_url, job_description, company_name, job_title} to stdout
+    -> prints a JSON array of {job_url, job_description, company_name, job_title, date_posted,
+       job_type} to stdout. date_posted comes from the RSS <pubDate>; job_type has no
+       structured source (see _infer_job_type) so it's a best-effort keyword guess.
 
 Usage (as a library):
     from scraper.weworkremotely import scrape_jobs
@@ -21,7 +23,9 @@ from __future__ import annotations
 
 import json
 import sys
+import unicodedata
 from dataclasses import dataclass, asdict
+from email.utils import parsedate_to_datetime
 from xml.etree import ElementTree as ET
 
 import requests
@@ -47,11 +51,52 @@ class Job:
     job_description: str
     company_name: str
     job_title: str
+    date_posted: str | None
+    job_type: str
 
 
 def _strip_html(text: str) -> str:
     """RSS descriptions are HTML; strip tags for a clean plain-text description."""
     return BeautifulSoup(text, "html.parser").get_text("\n", strip=True)
+
+
+# Unicode categories for decorative emoji/symbol/mark characters WWR sometimes prepends to
+# titles (e.g. a location-pin emoji before "Location Services Engineer..."). str.strip() only
+# removes whitespace, so these survive untouched and silently break alphabetical sorting -
+# they compare as "earlier" than any real letter even though they render as an near-invisible
+# leading glyph/gap.
+_DECORATIVE_CATEGORIES = {"So", "Sk", "Mn", "Me", "Cf"}
+
+
+def _clean_title(text: str) -> str:
+    text = text.strip()
+    while text and unicodedata.category(text[0]) in _DECORATIVE_CATEGORIES:
+        text = text[1:].strip()
+    return text
+
+
+def _parse_pub_date(raw_pub_date: str) -> str | None:
+    """RSS pubDate is RFC 822 (e.g. 'Wed, 22 Jul 2026 07:02:04 +0000'); store as ISO 8601."""
+    if not raw_pub_date:
+        return None
+    try:
+        return parsedate_to_datetime(raw_pub_date).isoformat()
+    except (TypeError, ValueError):
+        return None
+
+
+def _infer_job_type(title: str, description: str) -> str:
+    """WWR's RSS feed has no structured employment-type field (confirmed: not in the RSS
+    description, and the detail pages that do show it are blocked for cloud IPs - see the
+    WeWorkRemotely blocking gotcha in CLAUDE.md). Best-effort keyword guess instead."""
+    text = f"{title} {description}".lower()
+    if "intern" in text:
+        return "Internship"
+    if "part-time" in text or "part time" in text:
+        return "Part-time"
+    if "contract" in text or "contractor" in text:
+        return "Contract"
+    return "Full-time"
 
 
 def scrape_jobs(query: str, max_jobs: int = MAX_JOBS) -> list[dict]:
@@ -75,6 +120,7 @@ def scrape_jobs(query: str, max_jobs: int = MAX_JOBS) -> list[dict]:
         raw_title = (item.findtext("title") or "").strip()
         link = (item.findtext("link") or "").strip()
         raw_description = item.findtext("description") or ""
+        raw_pub_date = item.findtext("pubDate") or ""
 
         if not raw_title or not link:
             continue
@@ -82,20 +128,24 @@ def scrape_jobs(query: str, max_jobs: int = MAX_JOBS) -> list[dict]:
         # WWR RSS titles are formatted "Company Name: Job Title"
         if ":" in raw_title:
             company_name, job_title = raw_title.split(":", 1)
-            company_name = company_name.strip()
-            job_title = job_title.strip()
+            company_name = _clean_title(company_name)
+            job_title = _clean_title(job_title)
         else:
-            company_name, job_title = "", raw_title
+            company_name, job_title = "", _clean_title(raw_title)
 
         if query_lower not in job_title.lower() and query_lower not in raw_description.lower():
             continue
 
+        description = _strip_html(raw_description)
+
         jobs.append(
             Job(
                 job_url=link,
-                job_description=_strip_html(raw_description),
+                job_description=description,
                 company_name=company_name,
                 job_title=job_title,
+                date_posted=_parse_pub_date(raw_pub_date),
+                job_type=_infer_job_type(job_title, description),
             )
         )
         if len(jobs) >= max_jobs:

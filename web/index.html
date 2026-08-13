@@ -56,6 +56,17 @@
   }
   button:hover { background: var(--accent-dark); }
   button:disabled { background: #a5a6f0; cursor: default; }
+  #sort-select {
+    display: block;
+    margin-bottom: 16px;
+    padding: 8px 10px;
+    font-size: 0.9rem;
+    color: var(--text);
+    background: #fff;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    outline: none;
+  }
   #status {
     color: var(--muted);
     font-size: 0.9rem;
@@ -108,6 +119,13 @@
     <input id="job-title" type="text" placeholder="Software Engineer" required />
     <button type="submit" id="search-btn">Search</button>
   </form>
+  <select id="sort-select">
+    <option value="default">Sort: Default</option>
+    <option value="title">Title (A-Z)</option>
+    <option value="company">Company (A-Z)</option>
+    <option value="job_type">Job Type</option>
+    <option value="date_posted">Date Posted</option>
+  </select>
   <div id="status"></div>
   <div id="results"></div>
   <script>
@@ -118,6 +136,9 @@
     const status = document.getElementById("status");
     const results = document.getElementById("results");
     const searchBtn = document.getElementById("search-btn");
+    const sortSelect = document.getElementById("sort-select");
+    let currentJobs = [];
+    const JOB_TYPE_ORDER = ["Full-time", "Part-time", "Contract", "Internship"];
     function escapeHtml(str) {
       const div = document.createElement("div");
       div.textContent = str || "";
@@ -131,6 +152,57 @@
       const lastSpace = cut.lastIndexOf(" ");
       return (lastSpace > 0 ? cut.slice(0, lastSpace) : cut) + "...";
     }
+    function renderJobs(jobs) {
+      if (jobs.length === 0) {
+        results.innerHTML = `<div class="empty">No jobs found. Try a different search term.</div>`;
+        return;
+      }
+      results.innerHTML = jobs.map(job => `
+        <div class="job">
+          <h3>${escapeHtml(job.job_title)}</h3>
+          <div class="company">Company Name: ${escapeHtml(job.company_name)}</div>
+          <p class="desc">${escapeHtml(summarize(job.job_description))}</p>
+          <a href="${job.job_url}" target="_blank" rel="noopener">${escapeHtml(job.job_url)}</a>
+        </div>
+      `).join("");
+    }
+    function sortKey(str) {
+      return (str || "").trim().replace(/^[^\p{L}\p{N}]+/u, "");
+    }
+    function sortJobs(jobs, mode) {
+      const sorted = jobs.slice();
+      switch (mode) {
+        case "title":
+          sorted.sort((a, b) => sortKey(a.job_title).localeCompare(sortKey(b.job_title)));
+          break;
+        case "company":
+          sorted.sort((a, b) => sortKey(a.company_name).localeCompare(sortKey(b.company_name)));
+          break;
+        case "job_type":
+          sorted.sort((a, b) => {
+            const ai = JOB_TYPE_ORDER.indexOf(a.job_type);
+            const bi = JOB_TYPE_ORDER.indexOf(b.job_type);
+            return (ai === -1 ? JOB_TYPE_ORDER.length : ai) - (bi === -1 ? JOB_TYPE_ORDER.length : bi);
+          });
+          break;
+        case "date_posted":
+          sorted.sort((a, b) => {
+            const at = a.date_posted ? Date.parse(a.date_posted) : NaN;
+            const bt = b.date_posted ? Date.parse(b.date_posted) : NaN;
+            if (isNaN(at) && isNaN(bt)) return 0;
+            if (isNaN(at)) return 1;
+            if (isNaN(bt)) return -1;
+            return bt - at;
+          });
+          break;
+        default:
+          break;
+      }
+      return sorted;
+    }
+    sortSelect.addEventListener("change", () => {
+      renderJobs(sortJobs(currentJobs, sortSelect.value));
+    });
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
       const jobTitle = document.getElementById("job-title").value.trim();
@@ -139,24 +211,15 @@
       status.className = "loading";
       status.textContent = "Searching";
       searchBtn.disabled = true;
+      sortSelect.value = "default";
       try {
         const res = await fetch(`${API_BASE}/v1/get-jobs?job_title=${encodeURIComponent(jobTitle)}`);
         if (!res.ok) throw new Error(`Request failed: ${res.status}`);
         const data = await res.json();
         status.className = "";
         status.textContent = `${data.jobs.length} job(s) found for "${data.job_title}"`;
-        if (data.jobs.length === 0) {
-          results.innerHTML = `<div class="empty">No jobs found. Try a different search term.</div>`;
-        } else {
-          results.innerHTML = data.jobs.map(job => `
-            <div class="job">
-              <h3>${escapeHtml(job.job_title)}</h3>
-              <div class="company">Company Name: ${escapeHtml(job.company_name)}</div>
-              <p class="desc">${escapeHtml(summarize(job.job_description))}</p>
-              <a href="${job.job_url}" target="_blank" rel="noopener">${escapeHtml(job.job_url)}</a>
-            </div>
-          `).join("");
-        }
+        currentJobs = data.jobs;
+        renderJobs(currentJobs);
       } catch (err) {
         status.className = "";
         status.textContent = `Error: ${err.message}`;

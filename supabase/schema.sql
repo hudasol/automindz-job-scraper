@@ -9,8 +9,12 @@ create table if not exists jobs (
     company_name text,
     job_title text,
     search_query text,
-    created_at timestamptz not null default now()
+    created_at timestamptz not null default now(),
+    date_posted timestamptz
 );
+
+-- Run this against an existing table (created before date_posted existed):
+-- alter table jobs add column if not exists date_posted timestamptz;
 
 -- Speeds up "have we already stored jobs for this search" type lookups.
 create index if not exists idx_jobs_search_query on jobs (search_query);
