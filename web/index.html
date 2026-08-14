@@ -56,6 +56,22 @@
   }
   button:hover { background: var(--accent-dark); }
   button:disabled { background: #a5a6f0; cursor: default; }
+  #mic-btn {
+    flex: 0 0 auto;
+    padding: 10px 14px;
+    background: #fff;
+    color: var(--text);
+    border: 1px solid var(--border);
+  }
+  #mic-btn:hover { background: var(--bg); }
+  #mic-btn.listening {
+    background: #fee2e2;
+    border-color: #fca5a5;
+    animation: pulse 1.2s ease-in-out infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; } 50% { opacity: 0.55; }
+  }
   #sort-select {
     display: block;
     margin-bottom: 16px;
@@ -117,6 +133,7 @@
   </header>
   <form id="search-form">
     <input id="job-title" type="text" placeholder="Software Engineer" required />
+    <button type="button" id="mic-btn" title="Search by voice" style="display: none;">🎤</button>
     <button type="submit" id="search-btn">Search</button>
   </form>
   <select id="sort-select">
@@ -137,6 +154,8 @@
     const results = document.getElementById("results");
     const searchBtn = document.getElementById("search-btn");
     const sortSelect = document.getElementById("sort-select");
+    const micBtn = document.getElementById("mic-btn");
+    const jobTitleInput = document.getElementById("job-title");
     let currentJobs = [];
     const JOB_TYPE_ORDER = ["Full-time", "Part-time", "Contract", "Internship"];
     function escapeHtml(str) {
@@ -227,6 +246,40 @@
         searchBtn.disabled = false;
       }
     });
+
+    // Voice search: browser-native Web Speech API only (no server, no API key, no cost).
+    // Support is uneven across browsers (notably absent in Firefox), so the button stays
+    // hidden unless the API is actually present.
+    const SpeechRecognitionCtor = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (SpeechRecognitionCtor) {
+      const recognition = new SpeechRecognitionCtor();
+      recognition.lang = "en-US";
+      recognition.interimResults = false;
+      recognition.maxAlternatives = 1;
+      micBtn.style.display = "";
+
+      recognition.addEventListener("result", (e) => {
+        // Chrome's recognizer auto-punctuates ("python" -> "python."), which would break
+        // the exact substring match against job titles/descriptions - strip it.
+        const transcript = e.results[0][0].transcript.trim().replace(/[.!?,;:]+$/, "");
+        jobTitleInput.value = transcript;
+        form.requestSubmit();
+      });
+      recognition.addEventListener("error", (e) => {
+        status.className = "";
+        status.textContent = e.error === "not-allowed"
+          ? "Microphone access denied."
+          : `Voice search error: ${e.error}`;
+      });
+      recognition.addEventListener("end", () => {
+        micBtn.classList.remove("listening");
+      });
+
+      micBtn.addEventListener("click", () => {
+        micBtn.classList.add("listening");
+        recognition.start();
+      });
+    }
   </script>
 </body>
 </html>
