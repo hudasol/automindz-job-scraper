@@ -88,10 +88,15 @@ containing `trigger.config.ts` (`trigger/`), not the repo root.
 
 **`trigger/.env`** (read by `scrapeJobs.ts`, create manually — not committed):
 - `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` — from Supabase dashboard → Project Settings → API
+- `N8N_WEBHOOK_URL` — optional. If set, `scrapeJobs.ts` POSTs each job whose `job_url` is
+  genuinely new to the `jobs` table (never upserted before, not just new to the current search)
+  to this URL as JSON, one POST per job. A failed or missing webhook call is logged as a warning
+  and never fails the task.
 
 For the deployed app, `TRIGGER_SECRET_KEY`/`TRIGGER_TASK_ID` are Vercel environment variables
-(scoped to Production), and `SUPABASE_URL`/`SUPABASE_SERVICE_ROLE_KEY` are Trigger.dev dashboard
-environment variables (Production environment) — neither `.env` file is deployed.
+(scoped to Production), and `SUPABASE_URL`/`SUPABASE_SERVICE_ROLE_KEY`/`N8N_WEBHOOK_URL` are
+Trigger.dev dashboard environment variables (Production environment) — neither `.env` file is
+deployed.
 
 ## Gotchas and engineering decisions
 

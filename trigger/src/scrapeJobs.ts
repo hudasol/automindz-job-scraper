@@ -48,6 +48,22 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
+async function notifyN8n(webhookUrl: string, job: ScrapedJob) {
+  try {
+    const res = await fetch(webhookUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(job),
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!res.ok) {
+      logger.warn("n8n webhook returned a non-OK status", { status: res.status, job_url: job.job_url });
+    }
+  } catch (error) {
+    logger.warn("n8n webhook call failed", { error, job_url: job.job_url });
+  }
+}
+
 export const scrapeJobs = task({
   id: "scrape-jobs",
   run: async (payload: { jobTitle: string }) => {
@@ -74,13 +90,25 @@ export const scrapeJobs = task({
         ...rest,
         search_query: payload.jobTitle,
       }));
-      const { error } = await supabase
+      // ON CONFLICT DO NOTHING (ignoreDuplicates) means Postgres's RETURNING - and so
+      // this .select() - only reflects rows actually inserted just now, i.e. job_urls
+      // genuinely never seen before this run, not merely new to this search.
+      const { data: insertedRows, error } = await supabase
         .from("jobs")
-        .upsert(rows, { onConflict: "job_url", ignoreDuplicates: true });
+        .upsert(rows, { onConflict: "job_url", ignoreDuplicates: true })
+        .select("job_url");
 
       if (error) {
         logger.error("Supabase upsert failed", { error });
         throw new Error(`Supabase upsert failed: ${error.message}`);
+      }
+
+      const webhookUrl = process.env.N8N_WEBHOOK_URL;
+      if (webhookUrl && insertedRows && insertedRows.length > 0) {
+        const newJobUrls = new Set(insertedRows.map((row) => row.job_url));
+        const newJobs = jobs.filter((job) => newJobUrls.has(job.job_url));
+        logger.log(`Notifying n8n of ${newJobs.length} first-time-seen job(s)`);
+        await Promise.allSettled(newJobs.map((job) => notifyN8n(webhookUrl, job)));
       }
     }
 
