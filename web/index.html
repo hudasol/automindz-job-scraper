@@ -72,6 +72,18 @@
   @keyframes pulse {
     0%, 100% { opacity: 1; } 50% { opacity: 0.55; }
   }
+  #export-csv-btn {
+    display: none;
+    position: fixed;
+    top: 16px;
+    right: 20px;
+    z-index: 10;
+    padding: 8px 16px;
+    font-size: 0.85rem;
+    align-items: center;
+    gap: 6px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+  }
   #sort-select {
     display: block;
     margin-bottom: 16px;
@@ -127,6 +139,7 @@
 </style>
 </head>
 <body>
+  <button type="button" id="export-csv-btn" title="Download results as CSV">Export as CSV</button>
   <header>
     <h1>Job Search</h1>
     <p class="subtitle">Live results scraped from We Work Remotely.</p>
@@ -156,7 +169,9 @@
     const sortSelect = document.getElementById("sort-select");
     const micBtn = document.getElementById("mic-btn");
     const jobTitleInput = document.getElementById("job-title");
+    const exportBtn = document.getElementById("export-csv-btn");
     let currentJobs = [];
+    let currentSearchTitle = "";
     const JOB_TYPE_ORDER = ["Full-time", "Part-time", "Contract", "Internship"];
     function escapeHtml(str) {
       const div = document.createElement("div");
@@ -238,13 +253,52 @@
         status.className = "";
         status.textContent = `${data.jobs.length} job(s) found for "${data.job_title}"`;
         currentJobs = data.jobs;
+        currentSearchTitle = data.job_title;
         renderJobs(currentJobs);
+        exportBtn.style.display = currentJobs.length > 0 ? "inline-flex" : "none";
       } catch (err) {
         status.className = "";
         status.textContent = `Error: ${err.message}`;
+        exportBtn.style.display = "none";
       } finally {
         searchBtn.disabled = false;
       }
+    });
+
+    // CSV export: RFC 4180 quoting (quote fields containing a comma, quote, or newline;
+    // double up embedded quotes) and a UTF-8 BOM so accented company/job names render
+    // correctly when the file is opened in Excel. Exports the full, untruncated
+    // description (unlike the on-page summary) and follows the current sort order.
+    function csvEscape(value) {
+      const str = String(value ?? "");
+      return /[",\r\n]/.test(str) ? `"${str.replace(/"/g, '""')}"` : str;
+    }
+    function jobsToCsv(jobs) {
+      const headers = ["Job Title", "Company Name", "Job Type", "Date Posted", "Job URL", "Job Description"];
+      const rows = jobs.map(job => [
+        job.job_title,
+        job.company_name,
+        job.job_type,
+        job.date_posted,
+        job.job_url,
+        job.job_description
+      ].map(csvEscape).join(","));
+      return "﻿" + [headers.join(","), ...rows].join("\r\n");
+    }
+    exportBtn.addEventListener("click", () => {
+      if (currentJobs.length === 0) return;
+      const jobsInViewOrder = sortJobs(currentJobs, sortSelect.value);
+      const csv = jobsToCsv(jobsInViewOrder);
+      const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const slug = (currentSearchTitle || "jobs").trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `jobs-${slug || "search"}-${new Date().toISOString().slice(0, 10)}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
     });
 
     // Voice search: browser-native Web Speech API only (no server, no API key, no cost).
