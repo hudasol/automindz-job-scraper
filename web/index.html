@@ -294,7 +294,12 @@
       const slug = (currentSearchTitle || "jobs").trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
       const a = document.createElement("a");
       a.href = url;
-      a.download = `jobs-${slug || "search"}-${new Date().toISOString().slice(0, 10)}.csv`;
+      const now = new Date();
+      const datePart = now.toISOString().slice(0, 10);
+      const timePart = now.toLocaleTimeString([], { hour: "numeric", minute: "2-digit", hour12: true })
+        .replace(/[:\s]/g, (m) => (m === ":" ? "-" : ""))
+        .toLowerCase();
+      a.download = `jobs-${slug || "search"}-${datePart}-${timePart}.csv`;
       document.body.appendChild(a);
       a.click();
       a.remove();
