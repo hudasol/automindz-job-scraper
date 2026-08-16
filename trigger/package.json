@@ -8,10 +8,10 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.0",
-    "@trigger.dev/sdk": "4.5.10"
+    "@trigger.dev/sdk": "4.5.11"
   },
   "devDependencies": {
-    "@trigger.dev/build": "4.5.10",
+    "@trigger.dev/build": "4.5.11",
     "import-in-the-middle": "^3.3.3",
     "typescript": "^5.5.0"
   }
