@@ -26,10 +26,14 @@ https://trigger.dev/docs/management/runs/retrieve
 
 import os
 import time
+from contextlib import asynccontextmanager
 
 import httpx
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from mcp.server import MCPServer
+from starlette.concurrency import run_in_threadpool
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -40,12 +44,33 @@ TRIGGER_RUN_URL = "https://api.trigger.dev/api/v3/runs/{run_id}"  # v3, not v1 -
 TRIGGER_SECRET_KEY = os.environ.get("TRIGGER_SECRET_KEY", "")
 TRIGGER_TASK_ID = os.environ.get("TRIGGER_TASK_ID", "scrape-jobs")
 
+# Gates the /mcp endpoint only (see require_mcp_auth below) - the REST endpoints below stay
+# open, matching their existing behavior. An MCP tool surface is easier for an unrelated
+# Claude Code session to stumble into and trigger real spend (Trigger.dev runs, Context.dev
+# credits) than a REST URL nobody has a reason to guess, so this closes that gap.
+MCP_API_KEY = os.environ.get("MCP_API_KEY", "")
+
 TERMINAL_FAILURE_STATUSES = {"CANCELED", "FAILED", "CRASHED", "INTERRUPTED", "SYSTEM_FAILURE"}
 
 POLL_INTERVAL_SECONDS = 1
 POLL_TIMEOUT_SECONDS = 60
 
-app = FastAPI(title="Job Search Scraper API")
+# MCP server, mounted onto this same FastAPI app at /mcp (see the bottom of this file).
+# Tools are defined further down, right after the REST endpoints they wrap - see
+# search_jobs/get_company_info.
+mcp = MCPServer("automindz-job-scraper")
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Mounting the MCP server disables FastAPI's own default lifespan handling, so this
+    # app-level lifespan has to be the one that enters mcp.session_manager.run() - without
+    # it, the first request to /mcp fails with "Task group is not initialized".
+    async with mcp.session_manager.run():
+        yield
+
+
+app = FastAPI(title="Job Search Scraper API", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -55,26 +80,40 @@ app.add_middleware(
 )
 
 
+@app.middleware("http")
+async def require_mcp_auth(request: Request, call_next):
+    if request.url.path.startswith("/mcp"):
+        if not MCP_API_KEY:
+            return JSONResponse({"error": "MCP_API_KEY is not configured"}, status_code=500)
+        if request.headers.get("authorization") != f"Bearer {MCP_API_KEY}":
+            return JSONResponse({"error": "Unauthorized"}, status_code=401)
+    return await call_next(request)
+
+
 @app.get("/health")
 def health():
     return {"status": "ok"}
 
 
-@app.get("/v1/get-jobs")
-def get_jobs(job_title: str = Query(..., min_length=1, description="Job title to search for")):
+def trigger_and_poll(task_id: str, payload: dict) -> dict:
+    """Triggers a Trigger.dev task via its REST API and polls until it completes.
+
+    Shared by /v1/get-jobs (scrape-jobs task) and /v1/enrich-company (enrich-company task) -
+    both need the same trigger-then-poll dance, just against different task ids/payloads.
+    """
     if not TRIGGER_SECRET_KEY:
         raise HTTPException(500, "TRIGGER_SECRET_KEY is not configured")
 
     headers = {"Authorization": f"Bearer {TRIGGER_SECRET_KEY}"}
 
     trigger_resp = httpx.post(
-        TRIGGER_TASK_URL.format(task_id=TRIGGER_TASK_ID),
+        TRIGGER_TASK_URL.format(task_id=task_id),
         headers=headers,
-        json={"payload": {"jobTitle": job_title}},
+        json={"payload": payload},
         timeout=30,
     )
     if trigger_resp.status_code >= 400:
-        raise HTTPException(502, f"Failed to trigger scrape task: {trigger_resp.text}")
+        raise HTTPException(502, f"Failed to trigger {task_id} task: {trigger_resp.text}")
 
     run_id = trigger_resp.json().get("id")
     if not run_id:
@@ -88,15 +127,66 @@ def get_jobs(job_title: str = Query(..., min_length=1, description="Job title to
         status = run_data.get("status")
 
         if status == "COMPLETED":
-            output = run_data.get("output") or {}
-            return {"job_title": job_title, "jobs": output.get("jobs", [])}
+            return run_data.get("output") or {}
 
         if status in TERMINAL_FAILURE_STATUSES:
-            raise HTTPException(502, f"Scrape task ended with status: {status}")
+            raise HTTPException(502, f"{task_id} task ended with status: {status}")
 
         time.sleep(POLL_INTERVAL_SECONDS)
 
-    raise HTTPException(504, "Timed out waiting for scrape task to complete")
+    raise HTTPException(504, f"Timed out waiting for {task_id} task to complete")
+
+
+@app.get("/v1/get-jobs")
+def get_jobs(job_title: str = Query(..., min_length=1, description="Job title to search for")):
+    output = trigger_and_poll(TRIGGER_TASK_ID, {"jobTitle": job_title})
+    return {"job_title": job_title, "jobs": output.get("jobs", [])}
+
+
+@app.get("/v1/enrich-company")
+def enrich_company(company_name: str = Query(..., min_length=1, description="Company name to enrich")):
+    output = trigger_and_poll("enrich-company", {"companyName": company_name})
+    return {
+        "company_name": company_name,
+        "company_size": output.get("company_size"),
+        "funding_stage": output.get("funding_stage"),
+    }
+
+
+# MCP tools - thin wrappers around the REST endpoints above, run off the FastAPI thread
+# pool (run_in_threadpool) since get_jobs/enrich_company make blocking httpx calls and this
+# is an async context. No separate backend logic: these return exactly what the REST
+# endpoints return, just callable directly by an MCP client instead of over HTTP.
+
+@mcp.tool()
+async def search_jobs(job_title: str) -> dict:
+    """Search WeWorkRemotely's Programming job feed for a title or keyword.
+
+    Scrapes live and can take up to a minute. Results are also stored in this app's
+    Supabase `jobs` table as a side effect.
+
+    Args:
+        job_title: Job title or keyword to search for, e.g. "Python Developer".
+    """
+    return await run_in_threadpool(get_jobs, job_title)
+
+
+@mcp.tool()
+async def get_company_info(company_name: str) -> dict:
+    """Look up a company's employee-count range and latest funding stage via Context.dev.
+
+    COSTS MONEY: up to 20 Context.dev credits for a company that has never been looked up
+    before (0 credits if it's already cached). Confirm with the user before calling this for
+    a company you haven't already resolved in this conversation. Repeat lookups for the same
+    company are free.
+
+    Args:
+        company_name: The company's name, e.g. "Acme Inc".
+    """
+    return await run_in_threadpool(enrich_company, company_name)
+
+
+app.mount("/", mcp.streamable_http_app())
 
 from fastapi.responses import FileResponse
 

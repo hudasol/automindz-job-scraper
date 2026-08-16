@@ -36,6 +36,25 @@ for why.
 you edit `scraper/weworkremotely.py`, the change does not take effect in production until this
 copy step is re-run and the task is redeployed.
 
+## MCP connector
+
+`api/main.py` also mounts an MCP server at `/mcp` (Streamable HTTP transport), exposing
+`search_jobs` and `get_company_info` as MCP tools — thin wrappers around the same
+`trigger_and_poll()` logic the `/v1/get-jobs` and `/v1/enrich-company` REST endpoints use, so
+there's no separate backend logic to maintain. Requires the `mcp` package (`requirements.txt`)
+and the `MCP_API_KEY` env var (see below).
+
+To connect from Claude Code:
+```bash
+claude mcp add --transport http automindz http://localhost:8000/mcp \
+  --header "Authorization: Bearer <MCP_API_KEY>"
+```
+(swap the URL for the deployed one to connect to production instead of local dev).
+
+To add a new tool later: write a small function with `@mcp.tool()`, type hints, and a
+docstring near the other tool definitions in `api/main.py` — the schema is generated
+automatically from those, nothing else to wire up.
+
 ## Commands
 
 **Run the scraper standalone:**
@@ -85,6 +104,10 @@ containing `trigger.config.ts` (`trigger/`), not the repo root.
   **The deployed Vercel app must use the `tr_prod_...` Production key** — the dev key only works
   while a local `trigger dev` CLI session is running to pick up runs.
 - `TRIGGER_TASK_ID` — defaults to `scrape-jobs`
+- `MCP_API_KEY` — shared secret required on the `/mcp` endpoint (see "MCP connector" below).
+  Any string works locally; pick something random. Requests to `/mcp` without a matching
+  `Authorization: Bearer <key>` header get a 401. The REST endpoints (`/v1/get-jobs`,
+  `/v1/enrich-company`) are unaffected — this only gates `/mcp`.
 
 **`trigger/.env`** (read by `scrapeJobs.ts`, create manually — not committed):
 - `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` — from Supabase dashboard → Project Settings → API
@@ -92,11 +115,18 @@ containing `trigger.config.ts` (`trigger/`), not the repo root.
   genuinely new to the `jobs` table (never upserted before, not just new to the current search)
   to this URL as JSON, one POST per job. A failed or missing webhook call is logged as a warning
   and never fails the task.
+- `CONTEXT_DEV_API_KEY` — required for the "Show company info" feature. Read by
+  `enrichCompany.ts` to call Context.dev's `/brand/retrieve` and `/web/extract` APIs (company
+  employee-count range and funding stage). Not a free API — 10 credits per call, up to 20 per
+  newly-seen company. Results are cached in Supabase's `company_enrichment` table so a given
+  company is only ever billed once, and the task refuses to spend past a 250-credit running
+  total (see `CREDIT_BUDGET` in `enrichCompany.ts`) without the credit budget being raised
+  first.
 
 For the deployed app, `TRIGGER_SECRET_KEY`/`TRIGGER_TASK_ID` are Vercel environment variables
-(scoped to Production), and `SUPABASE_URL`/`SUPABASE_SERVICE_ROLE_KEY`/`N8N_WEBHOOK_URL` are
-Trigger.dev dashboard environment variables (Production environment) — neither `.env` file is
-deployed.
+(scoped to Production), and `SUPABASE_URL`/`SUPABASE_SERVICE_ROLE_KEY`/`N8N_WEBHOOK_URL`/
+`CONTEXT_DEV_API_KEY` are Trigger.dev dashboard environment variables (Production
+environment) — neither `.env` file is deployed.
 
 ## Gotchas and engineering decisions
 

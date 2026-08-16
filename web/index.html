@@ -130,6 +130,19 @@
     font-weight: 600;
   }
   .job a:hover { text-decoration: underline; }
+  .company-info-row { margin-top: 10px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .company-info-btn {
+    padding: 6px 12px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    background: #fff;
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+  }
+  .company-info-btn:hover { background: var(--bg); }
+  .company-info-btn:disabled { background: var(--bg); color: var(--muted); cursor: default; }
+  .company-info-result { font-size: 0.85rem; color: var(--muted); }
   .empty {
     text-align: center;
     color: var(--muted);
@@ -197,6 +210,11 @@
           <div class="company">Company Name: ${escapeHtml(job.company_name)}</div>
           <p class="desc">${escapeHtml(summarize(job.job_description))}</p>
           <a href="${job.job_url}" target="_blank" rel="noopener">${escapeHtml(job.job_url)}</a>
+          ${job.company_name ? `
+          <div class="company-info-row">
+            <button type="button" class="company-info-btn" data-company-name="${escapeHtml(job.company_name)}">Show company info</button>
+            <span class="company-info-result"></span>
+          </div>` : ""}
         </div>
       `).join("");
     }
@@ -262,6 +280,30 @@
         exportBtn.style.display = "none";
       } finally {
         searchBtn.disabled = false;
+      }
+    });
+
+    // Company info is fetched on-demand, one company at a time, only when the user clicks
+    // for that specific job card - never automatically for a whole search result set.
+    results.addEventListener("click", async (e) => {
+      const btn = e.target.closest(".company-info-btn");
+      if (!btn) return;
+      const companyName = btn.dataset.companyName;
+      const resultEl = btn.nextElementSibling;
+      btn.disabled = true;
+      resultEl.textContent = "Loading company info...";
+      try {
+        const res = await fetch(`${API_BASE}/v1/enrich-company?company_name=${encodeURIComponent(companyName)}`);
+        if (!res.ok) throw new Error(`Request failed: ${res.status}`);
+        const data = await res.json();
+        const parts = [];
+        if (data.company_size) parts.push(`${escapeHtml(data.company_size)} employees`);
+        if (data.funding_stage) parts.push(escapeHtml(data.funding_stage));
+        resultEl.textContent = parts.length > 0 ? parts.join(" · ") : "No company info found";
+        btn.remove();
+      } catch (err) {
+        resultEl.textContent = "Company info unavailable";
+        btn.disabled = false;
       }
     });
 
