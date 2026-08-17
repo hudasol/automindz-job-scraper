@@ -186,8 +186,6 @@ async def get_company_info(company_name: str) -> dict:
     return await run_in_threadpool(enrich_company, company_name)
 
 
-app.mount("/", mcp.streamable_http_app())
-
 from fastapi.responses import FileResponse
 
 FRONTEND_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "web", "index.html")
@@ -195,3 +193,12 @@ FRONTEND_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__f
 @app.get("/")
 def serve_frontend():
     return FileResponse(FRONTEND_PATH)
+
+
+# Mounted last and deliberately: Starlette matches routes in registration order, and a
+# root Mount("/") matches any path, including "/" itself. Mounting it before the frontend
+# route above would swallow "/" before that route is ever reached (confirmed - that's
+# exactly what broke the live site: GET / returned the MCP sub-app's own 404 instead of
+# index.html). Registering all other routes first and this mount last means those exact
+# routes always match before Starlette falls through to the mount.
+app.mount("/", mcp.streamable_http_app())
