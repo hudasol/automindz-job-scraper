@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>CV Job Matching</title>
+<style>
+  :root {
+    --accent: #4f46e5;
+    --accent-dark: #4338ca;
+    --text: #1a1a1a;
+    --muted: #6b7280;
+    --border: #e5e7eb;
+    --bg: #f9fafb;
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, "Segoe UI", system-ui, sans-serif;
+    max-width: 680px;
+    margin: 0 auto;
+    padding: 56px 20px 80px;
+    color: var(--text);
+    background: var(--bg);
+  }
+  header { margin-bottom: 28px; }
+  h1 { font-size: 1.7rem; margin: 0 0 4px; letter-spacing: -0.02em; }
+  .subtitle { color: var(--muted); font-size: 0.95rem; margin: 0; }
+  form {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-bottom: 24px;
+    background: #fff;
+    padding: 16px;
+    border-radius: 12px;
+    border: 1px solid var(--border);
+    box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+  }
+  input[type="file"] {
+    font-size: 0.95rem;
+  }
+  button {
+    align-self: flex-start;
+    padding: 10px 20px;
+    font-size: 0.95rem;
+    font-weight: 600;
+    cursor: pointer;
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    transition: background 0.15s ease;
+  }
+  button:hover { background: var(--accent-dark); }
+  button:disabled { background: #a5a6f0; cursor: default; }
+  #status {
+    color: var(--muted);
+    font-size: 0.9rem;
+    margin-bottom: 16px;
+    min-height: 1.2em;
+  }
+  #status.error { color: #b91c1c; }
+  #extracted-text {
+    display: none;
+    white-space: pre-wrap;
+    word-break: break-word;
+    background: #fff;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px 18px;
+    font-size: 0.85rem;
+    line-height: 1.5;
+    color: #374151;
+    max-height: 500px;
+    overflow-y: auto;
+  }
+</style>
+</head>
+<body>
+  <header>
+    <h1>CV Job Matching</h1>
+    <p class="subtitle">Step 1: upload a CV and confirm text extraction works. No matching yet.</p>
+  </header>
+  <form id="upload-form">
+    <input id="cv-file" type="file" accept=".pdf,.docx" required />
+    <button type="submit" id="upload-btn">Upload &amp; Extract Text</button>
+  </form>
+  <div id="status"></div>
+  <pre id="extracted-text"></pre>
+  <script>
+    const API_BASE = window.API_BASE || "https://automindz-job-scraper.vercel.app";
+    const form = document.getElementById("upload-form");
+    const fileInput = document.getElementById("cv-file");
+    const uploadBtn = document.getElementById("upload-btn");
+    const status = document.getElementById("status");
+    const extractedText = document.getElementById("extracted-text");
+
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const file = fileInput.files[0];
+      if (!file) return;
+
+      status.className = "";
+      status.textContent = "Extracting text...";
+      extractedText.style.display = "none";
+      uploadBtn.disabled = true;
+
+      try {
+        const formData = new FormData();
+        formData.append("file", file);
+        const res = await fetch(`${API_BASE}/v1/parse-cv`, { method: "POST", body: formData });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || `Request failed: ${res.status}`);
+
+        status.className = "";
+        status.textContent = `Extracted ${data.text.length} characters from "${data.filename}"`;
+        extractedText.textContent = data.text;
+        extractedText.style.display = "block";
+      } catch (err) {
+        status.className = "error";
+        status.textContent = `Error: ${err.message}`;
+      } finally {
+        uploadBtn.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>

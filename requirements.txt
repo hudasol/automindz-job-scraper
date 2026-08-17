@@ -5,3 +5,6 @@ beautifulsoup4
 httpx
 python-dotenv
 mcp
+python-multipart
+pypdf
+python-docx

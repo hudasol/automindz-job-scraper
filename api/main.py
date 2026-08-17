@@ -24,12 +24,15 @@ Source: https://trigger.dev/docs/management/tasks/trigger and
 https://trigger.dev/docs/management/runs/retrieve
 """
 
+import io
 import os
 import time
 from contextlib import asynccontextmanager
 
+import docx
 import httpx
-from fastapi import FastAPI, HTTPException, Query, Request
+import pypdf
+from fastapi import FastAPI, File, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from mcp.server import MCPServer
@@ -154,6 +157,40 @@ def enrich_company(company_name: str = Query(..., min_length=1, description="Com
     }
 
 
+# CV -> ranked job matches, step 1: upload + text extraction only. No LLM call yet - this
+# just proves parsing works before anything downstream costs money. Extraction is pure
+# Python (pypdf/python-docx), synchronous and fast, so it runs directly in FastAPI rather
+# than as a Trigger.dev task.
+
+def _extract_pdf_text(content: bytes) -> str:
+    reader = pypdf.PdfReader(io.BytesIO(content))
+    return "\n".join(page.extract_text() or "" for page in reader.pages)
+
+
+def _extract_docx_text(content: bytes) -> str:
+    document = docx.Document(io.BytesIO(content))
+    return "\n".join(paragraph.text for paragraph in document.paragraphs)
+
+
+@app.post("/v1/parse-cv")
+async def parse_cv(file: UploadFile = File(...)):
+    filename = (file.filename or "").lower()
+    content = await file.read()
+
+    if filename.endswith(".pdf"):
+        text = _extract_pdf_text(content)
+    elif filename.endswith(".docx"):
+        text = _extract_docx_text(content)
+    else:
+        raise HTTPException(400, "Only .pdf and .docx files are supported")
+
+    text = text.strip()
+    if not text:
+        raise HTTPException(422, "Could not extract any text from this file - it may be a scanned/image-only document")
+
+    return {"filename": file.filename, "text": text}
+
+
 # MCP tools - thin wrappers around the REST endpoints above, run off the FastAPI thread
 # pool (run_in_threadpool) since get_jobs/enrich_company make blocking httpx calls and this
 # is an async context. No separate backend logic: these return exactly what the REST
@@ -189,11 +226,18 @@ async def get_company_info(company_name: str) -> dict:
 
 from fastapi.responses import FileResponse
 
-FRONTEND_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "web", "index.html")
+WEB_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "web")
+FRONTEND_PATH = os.path.join(WEB_DIR, "index.html")
+MATCH_PATH = os.path.join(WEB_DIR, "match.html")
 
 @app.get("/")
 def serve_frontend():
     return FileResponse(FRONTEND_PATH)
+
+
+@app.get("/match")
+def serve_match():
+    return FileResponse(MATCH_PATH)
 
 
 # Mounted last and deliberately: Starlette matches routes in registration order, and a
