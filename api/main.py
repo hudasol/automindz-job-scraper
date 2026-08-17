@@ -33,6 +33,7 @@ from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from mcp.server import MCPServer
+from mcp.server.transport_security import TransportSecuritySettings
 from starlette.concurrency import run_in_threadpool
 
 from dotenv import load_dotenv
@@ -201,4 +202,17 @@ def serve_frontend():
 # exactly what broke the live site: GET / returned the MCP sub-app's own 404 instead of
 # index.html). Registering all other routes first and this mount last means those exact
 # routes always match before Starlette falls through to the mount.
-app.mount("/", mcp.streamable_http_app())
+#
+# transport_security: the SDK auto-enables DNS-rebinding host-header protection allowing
+# only 127.0.0.1/localhost/::1 whenever `host` isn't overridden (see
+# mcp.server.lowlevel.server.Server.streamable_http_app) - meant for unauthenticated local
+# dev servers. That rejected every real request in production with "Invalid Host header"
+# (confirmed - Vercel's Host header is the deployment's actual domain, never localhost).
+# require_mcp_auth above is the real security boundary here (a bearer token a DNS-rebinding
+# attack can't forge), and Vercel's preview URLs are per-deployment random hashes that
+# can't be enumerated into a static allowed_hosts list anyway, so this protection is both
+# redundant and unworkable for this deployment - disabled explicitly rather than guessed at.
+app.mount(
+    "/",
+    mcp.streamable_http_app(transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False)),
+)
