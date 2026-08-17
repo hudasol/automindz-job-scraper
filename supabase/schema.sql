@@ -22,6 +22,15 @@ create index if not exists idx_jobs_search_query on jobs (search_query);
 -- job_url is UNIQUE above, so an upsert with onConflict: "job_url" (used in the
 -- Trigger.dev task) naturally avoids storing the same job twice.
 
+-- Only the server-side Trigger.dev task (via service_role) ever writes to this table, and
+-- nothing in the frontend/API exposes Supabase to the browser - so RLS is intentionally
+-- disabled rather than written as per-row policies.
+alter table public.jobs disable row level security;
+
+-- service_role bypasses RLS but NOT table-level grants - without this, the task's Supabase
+-- calls fail even with the right key.
+grant select, insert, update, delete on public.jobs to service_role, anon, authenticated;
+
 -- Caches Context.dev company enrichment (employee range + funding stage) so a company is
 -- only ever billed once, regardless of how many searches/users surface its jobs. Keyed on
 -- a normalized (trimmed, lowercased) company_name since that's all WeWorkRemotely's RSS
@@ -38,3 +47,6 @@ create table if not exists company_enrichment (
     credits_spent integer not null default 0,
     enriched_at timestamptz not null default now()
 );
+
+-- Same reasoning as jobs above: only the Trigger.dev task touches this table.
+grant select, insert, update, delete on public.company_enrichment to service_role;
